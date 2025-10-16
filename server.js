@@ -1,19 +1,17 @@
 import express from 'express';
 import axios from 'axios';
-import { createServer } from 'http'; // Import http untuk attach ws
-import { Server } from 'ws'; // Ganti WebSocket.Server jadi Server
+import { createServer } from 'http';
+import WebSocket from 'ws'; // Import default WebSocketServer
 import { TikTokLiveConnection, WebcastEvent } from 'tiktok-live-connector';
 import cors from 'cors';
 
 const app = express();
-const server = createServer(app); // Buat HTTP server dari Express
+const server = createServer(app); // HTTP server untuk Express + WebSocket
+const wss = new WebSocket.WebSocketServer({ server }); // Fix: Gunakan WebSocket.WebSocketServer
 const PORT = process.env.PORT || 3000;
 
-app.use(cors({ origin: '*' })); // CORS longgar untuk Canvas
+app.use(cors({ origin: '*' }));
 app.use(express.json());
-
-// Attach WebSocket ke HTTP server (satu port!)
-const wss = new Server({ server }); // Attach ke server, bukan port terpisah
 
 const tiktokUsername = process.env.TIKTOK_USERNAME || '@yourusername';
 
@@ -23,7 +21,7 @@ let guesses = [];
 let currentRow = 0;
 const wordList = ['rumah', 'mobil', 'buku', 'meja', 'kursi', 'pintu', 'jendela', 'api', 'air', 'tanah'];
 
-// Endpoint API (sama seperti sebelumnya)
+// Endpoint untuk start game baru
 app.get('/api/new-game', (req, res) => {
     targetWord = wordList[Math.floor(Math.random() * wordList.length)];
     guesses = [];
@@ -32,6 +30,7 @@ app.get('/api/new-game', (req, res) => {
     broadcastGameState();
 });
 
+// Endpoint validasi kata via KBBI
 app.get('/api/validate-word/:word', async (req, res) => {
     const { word } = req.params;
     if (word.length !== 5) return res.json({ valid: false, message: 'Kata harus 5 huruf' });
@@ -42,19 +41,20 @@ app.get('/api/validate-word/:word', async (req, res) => {
         const isValid = data && data.teks && data.teks.length > 0;
         res.json({ valid: isValid, meaning: isValid ? data.teks : 'Kata tidak ditemukan di KBBI' });
     } catch (error) {
+        console.error('KBBI API error:', error.message);
         res.json({ valid: false, message: 'Error API KBBI' });
     }
 });
 
-// Fallback Polling: Endpoint untuk cek state (jika WS gagal)
+// Fallback polling endpoint
 app.get('/api/game-state', (req, res) => {
     res.json({ guesses, currentRow });
 });
 
-// Broadcast via WebSocket
+// Broadcast state via WebSocket
 function broadcastGameState() {
     wss.clients.forEach(client => {
-        if (client.readyState === client.OPEN) {
+        if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({ type: 'gameState', guesses, currentRow }));
         }
     });
@@ -62,17 +62,17 @@ function broadcastGameState() {
 
 function broadcastMessage(message) {
     wss.clients.forEach(client => {
-        if (client.readyState === client.OPEN) {
+        if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({ type: 'message', content: message }));
         }
     });
 }
 
-// Proses tebakan (sama)
+// Proses tebakan dari TikTok
 async function processGuess(guess, username) {
     if (currentRow >= 6 || !targetWord) return;
 
-    const res = await axios.get(`${req.protocol}://${req.get('host')}/api/validate-word/${guess}`); // Fix URL untuk Render
+    const res = await axios.get(`http://localhost:${PORT}/api/validate-word/${guess}`);
     const { valid, meaning } = res.data;
 
     if (!valid) {
@@ -104,7 +104,7 @@ async function processGuess(guess, username) {
     }
 }
 
-// TikTok Connector (sama)
+// TikTok LIVE Connector
 const tiktokConnection = new TikTokLiveConnection(tiktokUsername, {
     processInitialData: false,
     fetchRoomInfoOnConnect: true,
@@ -124,7 +124,7 @@ tiktokConnection.on(WebcastEvent.CHAT, async (data) => {
     }
 });
 
-// Jalankan server (satu port untuk HTTP + WS)
+// Start server
 server.listen(PORT, () => {
     console.log(`Server + WebSocket running on port ${PORT}`);
 });
