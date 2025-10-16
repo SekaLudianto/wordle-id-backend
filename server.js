@@ -8,7 +8,7 @@ const app = express();
 app.use(cors()); // Izinkan akses dari Google AI Studio
 app.use(express.json());
 const PORT = process.env.PORT || 3000;
-const wss = new WebSocket.Server({ port: process.env.PORT_WS || 8080 });
+const wss = new WebSocket.Server({ port: process.env.PORT_WS || 10000 });
 const tiktokUsername = process.env.TIKTOK_USERNAME || '@yourusername'; // Set di Render env
 
 // Simpan state permainan
